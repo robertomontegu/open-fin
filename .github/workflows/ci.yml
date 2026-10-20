@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install pinned development dependencies
+        run: |
+          python -m pip install -r requirements.lock
+          python -m pip install --no-deps -e .
+      - name: Lint
+        run: python -m ruff check src tests scripts
+      - name: Test synthetic fixtures
+        run: python -m pytest
+      - name: Compile and build wheel
+        run: |
+          python -m compileall -q src scripts
+          python -m pip wheel --no-deps --wheel-dir dist .
+      - name: Build test image
+        run: docker build --target test -t open-fin:test .
+      - name: Run isolated container checks
+        run: docker run --rm --init --network none open-fin:test
+      - name: Build runtime image
+        run: docker build --target runtime -t open-fin:ci .

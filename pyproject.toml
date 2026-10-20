@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "open-fin"
+version = "0.1.0"
+description = "Self-hosted banking connections, starting with Santander Chile"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "NOTICE", "third_party/*.LICENSE"]
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "pydantic>=2.10,<3",
+  "cryptography>=44,<48",
+  "playwright>=1.51,<2",
+  "psutil>=7,<9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "pytest-cov>=6,<8", "httpx>=0.28,<1", "ruff>=0.11,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/open_fin"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["spec(id): owning acceptance scenario in docs/specs"]
+addopts = "--strict-markers"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.coverage.run]
+source = ["open_fin"]
+
+[tool.coverage.report]
+show_missing = true

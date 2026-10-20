@@ -1,0 +1,16 @@
+{
+  "unbilled_usd": [
+    {"date": "15/10/2026", "description": "Synthetic subscription", "charge": "US$ 14,82", "payment": "", "installments": "1/3"},
+    {"date": "", "description": "Synthetic subscription", "charge": "US$ 14,82", "payment": "", "installments": "1/3"},
+    {"date": "16/10/2026", "description": "Synthetic refund", "charge": "", "payment": "USD 2.50"}
+  ],
+  "billed_usd": [
+    {"date": "10/10/2026", "description": "Synthetic statement purchase", "amount": "1.234,56"},
+    {"date": "11/10/2026", "description": "Synthetic statement refund", "amount": "-10,25"}
+  ],
+  "account_clp": [
+    {"date": "18/10/2026", "description": "Synthetic salary", "charge": "", "payment": "$ 1.234.567"},
+    {"date": "19/10/2026", "description": "Synthetic purchase", "charge": "5.000", "payment": "—"},
+    {"date": "19/10/2026", "description": "Synthetic zero entry", "charge": "0", "payment": ""}
+  ]
+}

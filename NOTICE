@@ -1,0 +1,22 @@
+Open Fin
+Copyright (c) 2026 Open Fin contributors
+
+Original Open Fin code is licensed under GNU AGPL version 3 only
+(SPDX-License-Identifier: AGPL-3.0-only). See LICENSE for the complete terms.
+
+Santander Chile browser selectors and extraction flow are adapted from Fintself:
+https://github.com/jorgeortizfuentes/fintself
+Source revision: c4defa2434322563b4e61744b480c620dc18c442
+Copyright (c) 2025 Jorge Ortiz
+Fintself portions retain the MIT License in third_party/fintself.LICENSE.
+Open Fin is an independent project and is not endorsed by Fintself or Santander.
+
+scripts/chromium-seccomp.json is redistributed from Microsoft Playwright:
+https://github.com/microsoft/playwright/blob/ae935a43d9e376e4759548f6b3c6905c7b282333/utils/docker/seccomp_profile.json
+Copyright (c) Microsoft Corporation
+Licensed under Apache License, Version 2.0; see third_party/playwright.LICENSE.
+Open Fin adds the chroot syscall to the upstream namespace allow rule so Chromium
+can enter its sandbox root without granting host/container capabilities.
+
+The AGPL license text was retrieved from SPDX's canonical license data:
+https://github.com/spdx/license-list-data/blob/main/text/AGPL-3.0-only.txt

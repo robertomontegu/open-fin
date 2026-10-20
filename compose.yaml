@@ -1,0 +1,51 @@
+name: open-fin
+
+x-open-fin-common: &open-fin-common
+  build:
+    context: .
+    target: runtime
+  image: open-fin:local
+  init: true
+  restart: unless-stopped
+  user: "10001:10001"
+  read_only: true
+  cap_drop:
+    - ALL
+  environment:
+    OPEN_FIN_API_TOKEN: ${OPEN_FIN_API_TOKEN:?Run make setup first}
+    OPEN_FIN_ENCRYPTION_KEY: ${OPEN_FIN_ENCRYPTION_KEY:?Run make setup first}
+    OPEN_FIN_DATABASE_PATH: /data/open-fin.db
+    OPEN_FIN_MODE: ${OPEN_FIN_MODE:-demo}
+    OPEN_FIN_COOLDOWN_SECONDS: ${OPEN_FIN_COOLDOWN_SECONDS:-3600}
+    OPEN_FIN_JOB_TIMEOUT_SECONDS: ${OPEN_FIN_JOB_TIMEOUT_SECONDS:-240}
+    OPEN_FIN_HEADLESS: ${OPEN_FIN_HEADLESS:-true}
+    OPEN_FIN_SOURCE_URL: ${OPEN_FIN_SOURCE_URL:-https://github.com/robertomontegu/open-fin}
+  volumes:
+    - bank-data:/data
+  tmpfs:
+    - /tmp:rw,nosuid,size=512m,mode=1777
+
+services:
+  api:
+    <<: *open-fin-common
+    ports:
+      - "127.0.0.1:${OPEN_FIN_PORT:-8088}:8000"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  worker:
+    <<: *open-fin-common
+    command: ["python", "-m", "open_fin.worker"]
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./scripts/chromium-seccomp.json
+
+volumes:
+  bank-data:
