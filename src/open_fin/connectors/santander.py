@@ -192,6 +192,7 @@ class SantanderConnector:
         self.headless = headless
         self.timeout_seconds = timeout_seconds
         self._deadline = 0.0
+        self._stage = "starting"
 
     def _timeout(self, maximum: int = 20_000) -> int:
         remaining = int((self._deadline - time.monotonic()) * 1000)
@@ -217,8 +218,13 @@ class SantanderConnector:
 
     def _goto(self, page: Any, url: str) -> None:
         self._trusted_url(url)
-        page.goto(url, wait_until="domcontentloaded", timeout=self._timeout(60_000))
+        response = page.goto(url, wait_until="domcontentloaded", timeout=self._timeout(60_000))
         self._trusted_url(page.url)
+        if response is not None:
+            if response.status in {401, 403}:
+                raise ConnectorError("bank_access_denied")
+            if response.status >= 400:
+                raise ConnectorError("bank_http_error")
 
     @classmethod
     def _route_bank_request(cls, route: Any) -> None:
@@ -278,6 +284,7 @@ class SantanderConnector:
                 indicator.wait_for(state="hidden", timeout=self._timeout())
 
     def fetch(self, credentials: Credentials) -> Snapshot:
+        self._stage = "starting"
         self._deadline = time.monotonic() + self.timeout_seconds
         browser = None
         try:
@@ -297,17 +304,41 @@ class SantanderConnector:
                 finally:
                     if browser is not None:
                         browser.close()
-        except ConnectorError:
-            raise
+        except ConnectorError as error:
+            raise ConnectorError(error.code, stage=error.stage or self._stage) from None
         except PlaywrightTimeoutError:
-            raise ConnectorError("bank_page_timeout") from None
+            raise ConnectorError("bank_page_timeout", stage=self._stage) from None
         except Exception:
             # Raw Playwright errors can include DOM content, URLs and input values.
-            raise ConnectorError("connector_failed") from None
+            raise ConnectorError("connector_failed", stage=self._stage) from None
+
+    def _open_login(self, page: Any) -> None:
+        current = page.get_by_role("link", name="Abrir panel de ingreso", exact=True).filter(
+            visible=True
+        )
+        legacy = page.get_by_role("button", name="Ingresar al sitio privado").filter(visible=True)
+        try:
+            current.or_(legacy).first.wait_for(state="visible", timeout=self._timeout())
+        except PlaywrightTimeoutError:
+            raise ConnectorError("missing_login_entry") from None
+        current_count = current.count()
+        if current_count > 1:
+            raise ConnectorError("ambiguous_login_entry")
+        if current_count == 1:
+            current.click(timeout=self._timeout())
+            return
+        legacy_count = legacy.count()
+        if legacy_count > 1:
+            raise ConnectorError("ambiguous_login_entry")
+        if legacy_count != 1:
+            raise ConnectorError("missing_login_entry")
+        legacy.click(timeout=self._timeout())
 
     def _login(self, page: Any, credentials: Credentials) -> None:
+        self._stage = "login_page"
         self._goto(page, LOGIN_URL)
-        page.get_by_role("button", name="Ingresar al sitio privado").click(timeout=self._timeout())
+        self._open_login(page)
+        self._stage = "login_form"
         iframe = page.locator("#login-frame")
         iframe.wait_for(state="visible", timeout=self._timeout())
         frame = iframe.element_handle().content_frame()
@@ -327,10 +358,11 @@ class SantanderConnector:
         password_field.fill(credentials.password.get_secret_value(), timeout=self._timeout())
         self._trusted_url(frame.url)
         self._trusted_url(page.url)
+        self._stage = "login_submit"
         frame.get_by_role("button", name="Ingresar", exact=True).click(timeout=self._timeout())
         try:
             page.locator("h3:has-text('Hola')").wait_for(
-                state="visible", timeout=self._timeout(40_000)
+                state="visible", timeout=self._timeout(90_000)
             )
         except PlaywrightTimeoutError:
             raise ConnectorError("authentication_or_challenge_failed") from None
@@ -519,12 +551,14 @@ class SantanderConnector:
     def _snapshot(self, page: Any) -> Snapshot:
         products: dict[str, BankProduct] = {}
         movements = []
+        self._stage = "accounts"
         for account in self._accounts(page):
             product = _product("account", account.reference, account.currency)
             products[product.external_id] = product
             movements.extend(self._account_movements(page, account))
         expected_cards = None
         for source, url in CARD_URLS.items():
+            self._stage = "card_unbilled" if source == "credit_card_unbilled" else "card_billed"
             self._goto(page, url)
             cards = self._cards(page)
             if expected_cards is not None and set(cards) != set(expected_cards):

@@ -37,7 +37,10 @@ def main() -> None:
         snapshot = connector.fetch(Credentials.model_validate(payload["credentials"]))
         print(snapshot.model_dump_json())
     except ConnectorError as error:
-        print(json.dumps({"error_code": error.code}))
+        failure = {"error_code": error.code}
+        if error.stage is not None:
+            failure["stage"] = error.stage
+        print(json.dumps(failure))
         sys.exit(1)
     except Exception:
         # Raw exceptions can contain RUTs, bank HTML, paths or Playwright call arguments.

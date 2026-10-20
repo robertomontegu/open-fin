@@ -8,6 +8,17 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 Currency = Literal["CLP", "USD"]
 Source = Literal["account", "credit_card_billed", "credit_card_unbilled"]
+DIAGNOSTIC_STAGES = frozenset(
+    {
+        "starting",
+        "login_page",
+        "login_form",
+        "login_submit",
+        "accounts",
+        "card_unbilled",
+        "card_billed",
+    }
+)
 
 
 class Credentials(BaseModel):
@@ -78,9 +89,10 @@ class Snapshot(BaseModel):
 class ConnectorError(Exception):
     """Only stable, safe codes cross the connector boundary; never raw bank errors."""
 
-    def __init__(self, code: str = "connector_failed"):
+    def __init__(self, code: str = "connector_failed", *, stage: str | None = None):
         super().__init__(code)
         self.code = code
+        self.stage = stage if isinstance(stage, str) and stage in DIAGNOSTIC_STAGES else None
 
 
 class ConnectionView(BaseModel):
