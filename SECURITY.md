@@ -37,6 +37,10 @@ real bank credentials to the maintainers.
 - Live extraction checks process-control support before starting a browser. The
   adapter inherits the worker lock, and bounded cleanup includes browser processes
   that start separate sessions. Unsupported hosts fail before bank login.
+- The local validation wizard requires hidden terminal entry, bypasses environment
+  proxies, refuses HTTP redirects and resumes one recorded sync without automatic
+  login retries. Its report stays in an owner-only ignored local directory; only
+  the separate allowlisted `status.json` contains shareable states and counts.
 
 ## Operator responsibilities and limits
 

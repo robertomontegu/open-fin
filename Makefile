@@ -1,7 +1,7 @@
 PYTHON ?= python3
 COMPOSE ?= docker compose
 
-.PHONY: setup up down logs test lint check build docker-test
+.PHONY: setup up down logs test lint check build docker-test validate-live
 
 setup:
 	$(PYTHON) scripts/init-env.py
@@ -30,3 +30,6 @@ build:
 docker-test:
 	docker build --target test -t open-fin:test .
 	docker run --rm --init --network none open-fin:test
+
+validate-live:
+	$(PYTHON) scripts/validate-santander.py

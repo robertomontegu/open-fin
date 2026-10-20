@@ -276,6 +276,83 @@ def test_fetch_closes_browser_and_sanitizes_failures(monkeypatch, outcome):
     )
 
 
+@pytest.mark.parametrize(
+    "stage,code",
+    [
+        ("starting", "connector_failed"),
+        ("login_page", "bank_page_timeout"),
+        ("login_form", "bank_page_timeout"),
+        ("login_submit", "authentication_or_challenge_failed"),
+        ("accounts", "missing_account_products"),
+        ("card_unbilled", "missing_card_products"),
+        ("card_billed", "missing_card_products"),
+    ],
+)
+def test_fetch_reports_only_safe_failure_stage_and_closes_browser(monkeypatch, stage, code):
+    manager = MagicMock()
+    browser = manager.__enter__.return_value.chromium.launch.return_value
+    page = browser.new_context.return_value.new_page.return_value
+    page.url = "https://banco.santander.cl/personas"
+    iframe = MagicMock()
+    frame = iframe.element_handle.return_value.content_frame.return_value
+    frame.url = "https://banco.santander.cl/login"
+    frame.get_by_label.return_value.count.return_value = 1
+    greeting = MagicMock()
+    page.locator.side_effect = lambda selector: iframe if selector == "#login-frame" else greeting
+    monkeypatch.setattr(santander, "sync_playwright", lambda: manager)
+    adapter = SantanderConnector()
+    sensitive_text = "synthetic-sensitive-rut-password-DOM-https://example.com/private"
+    if stage == "starting":
+        browser.new_context.side_effect = RuntimeError(sensitive_text)
+    elif stage == "login_page":
+        page.goto.side_effect = PlaywrightTimeoutError(sensitive_text)
+    elif stage == "login_form":
+        iframe.wait_for.side_effect = PlaywrightTimeoutError(sensitive_text)
+    elif stage == "login_submit":
+        greeting.wait_for.side_effect = PlaywrightTimeoutError(sensitive_text)
+    else:
+        monkeypatch.setattr(adapter, "_login", lambda *_: None)
+        if stage == "accounts":
+            monkeypatch.setattr(adapter, "_accounts", MagicMock(side_effect=ConnectorError(code)))
+        else:
+            monkeypatch.setattr(adapter, "_goto", lambda *_: None)
+            monkeypatch.setattr(adapter, "_accounts", lambda *_: [])
+            monkeypatch.setattr(
+                adapter,
+                "_cards",
+                MagicMock(
+                    side_effect=[ConnectorError(code)]
+                    if stage == "card_unbilled"
+                    else [[], ConnectorError(code)]
+                ),
+            )
+    credentials = Credentials(rut="synthetic-owner", password="synthetic-password")
+    with pytest.raises(ConnectorError) as error:
+        adapter.fetch(credentials)
+    assert error.value.code == code
+    assert str(error.value) == code
+    assert error.value.stage == stage
+    assert sensitive_text not in repr(error.value)
+    assert error.value.__suppress_context__ is True
+    browser.close.assert_called_once()
+
+
+def test_login_challenge_wait_is_bounded_and_does_not_resubmit(connector, monkeypatch):
+    page = MagicMock()
+    page.url = "https://banco.santander.cl/personas"
+    frame = page.locator.return_value.element_handle.return_value.content_frame.return_value
+    frame.url = "https://banco.santander.cl/login"
+    frame.get_by_label.return_value.count.return_value = 1
+    monkeypatch.setattr(connector, "_goto", lambda *_: None)
+    connector._deadline = time.monotonic() + 600
+    connector._login(page, Credentials(rut="synthetic-owner", password="synthetic-password"))
+    page.locator.assert_any_call("h3:has-text('Hola')")
+    assert page.locator.return_value.wait_for.call_args.kwargs["timeout"] == 90_000
+    frame.get_by_role.assert_any_call("button", name="Ingresar", exact=True)
+    frame.get_by_role.return_value.click.assert_called_once()
+    assert connector._stage == "login_submit"
+
+
 def test_missing_table_cannot_be_empty_success(connector):
     page = MagicMock()
     page.locator.return_value.first.wait_for.side_effect = PlaywrightTimeoutError("synthetic")

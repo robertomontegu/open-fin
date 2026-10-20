@@ -8,12 +8,14 @@ import signal
 import subprocess
 import sys
 import time
+from dataclasses import replace
 
 import psutil
 import pytest
 
 from open_fin import connector_process, processes, worker
-from open_fin.models import ConnectorError, Credentials, Snapshot
+from open_fin.models import ConnectorError, CreateConnection, Credentials, Snapshot
+from open_fin.storage import Store
 
 
 @pytest.fixture
@@ -190,6 +192,110 @@ def test_adapter_entrypoint_never_prints_raw_exception_or_credentials(monkeypatc
     assert json.loads(captured.out) == {"error_code": "connector_failed"}
     assert captured.err == ""
     assert "synthetic-worker-password" not in captured.out
+
+
+@pytest.mark.spec("OF-AC-001")
+@pytest.mark.spec("OF-AC-005")
+@pytest.mark.parametrize(
+    "stage,expected_stage",
+    [
+        ("starting", "starting"),
+        ("login_page", "login_page"),
+        ("login_form", "login_form"),
+        ("login_submit", "login_submit"),
+        ("accounts", "accounts"),
+        ("card_unbilled", "card_unbilled"),
+        ("card_billed", "card_billed"),
+        (None, None),
+        ("synthetic-worker-password private bank HTML", None),
+        (["synthetic-worker-password"], None),
+        ({"private": "synthetic-worker-password"}, None),
+    ],
+)
+def test_diagnostic_stage_survives_child_and_worker_only_when_allowlisted(
+    settings, credentials, process_stub, monkeypatch, capsys, stage, expected_stage
+):
+    class FailingAdapter:
+        def __init__(self, **_options):
+            pass
+
+        def fetch(self, _credentials):
+            raise ConnectorError("missing_movement_table", stage=stage)
+
+    monkeypatch.setattr(connector_process, "SantanderConnector", FailingAdapter)
+    monkeypatch.setattr(connector_process, "ensure_process_control", lambda: None)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "headless": True,
+                    "timeout_seconds": 30,
+                    "credentials": {
+                        "rut": credentials.rut.get_secret_value(),
+                        "password": credentials.password.get_secret_value(),
+                    },
+                }
+            )
+        ),
+    )
+    with pytest.raises(SystemExit) as failure:
+        connector_process.main()
+    assert failure.value.code == 1
+    child_output = capsys.readouterr()
+    expected_payload = {"error_code": "missing_movement_table"}
+    if expected_stage is not None:
+        expected_payload["stage"] = expected_stage
+    assert json.loads(child_output.out) == expected_payload
+    assert child_output.err == ""
+    assert credentials.password.get_secret_value() not in child_output.out
+    assert credentials.rut.get_secret_value() not in child_output.out
+
+    process_stub(output=child_output.out, returncode=1)
+    live_settings = replace(settings, connector_mode="live")
+    db = Store(live_settings.database_path, live_settings.encryption_key)
+    connection = db.create_connection(CreateConnection(credentials=credentials), mode="live")
+    job = db.enqueue(connection["id"], cooldown_seconds=0)
+    assert worker.run_once(live_settings) is True
+    failed_job = db.sync(job["id"])
+    assert failed_job["status"] == "failed"
+    assert failed_job["error_code"] == "missing_movement_table"
+    expected_message = worker.ERROR_MESSAGES["missing_movement_table"]
+    if expected_stage is not None:
+        expected_message += " Stage: " + expected_stage + "."
+    assert failed_job["error_message"] == expected_message
+    assert credentials.password.get_secret_value() not in json.dumps(failed_job)
+    assert credentials.rut.get_secret_value() not in json.dumps(failed_job)
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.spec("OF-AC-001")
+@pytest.mark.spec("OF-AC-005")
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "synthetic-worker-password private bank HTML",
+        ["synthetic-worker-password"],
+        {"private": "synthetic-worker-password"},
+        1234,
+        None,
+    ],
+)
+def test_worker_independently_discards_untrusted_child_stage(
+    settings, credentials, process_stub, capsys, stage
+):
+    process_stub(
+        output=json.dumps({"error_code": "authentication_required", "stage": stage}),
+        returncode=1,
+    )
+    with pytest.raises(ConnectorError) as failure:
+        worker.fetch_live(settings, credentials)
+    assert failure.value.code == "authentication_required"
+    assert failure.value.stage is None
+    assert str(failure.value) == "authentication_required"
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
 
 
 @pytest.mark.spec("OF-AC-001")

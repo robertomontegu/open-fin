@@ -10,7 +10,7 @@ from pathlib import Path
 
 from open_fin.config import Settings
 from open_fin.connectors.demo import DemoConnector
-from open_fin.models import ConnectorError, Credentials, Snapshot
+from open_fin.models import DIAGNOSTIC_STAGES, ConnectorError, Credentials, Snapshot
 from open_fin.processes import stop_group
 from open_fin.storage import Store
 
@@ -108,10 +108,16 @@ def fetch_live(
             raise
         if process.returncode:
             try:
-                code = json.loads(stdout)["error_code"]
+                failure = json.loads(stdout)
+                code = failure["error_code"]
+                stage = failure.get("stage")
             except (ValueError, KeyError, TypeError):
                 code = "connector_failed"
-            raise ConnectorError(code if code in ERROR_MESSAGES else "connector_failed")
+                stage = None
+            raise ConnectorError(
+                code if code in ERROR_MESSAGES else "connector_failed",
+                stage=stage if isinstance(stage, str) and stage in DIAGNOSTIC_STAGES else None,
+            )
         try:
             return Snapshot.model_validate_json(stdout)
         except ValueError as error:
@@ -148,7 +154,10 @@ def run_once(settings: Settings, connector=None) -> bool:
             db.ingest(job["id"], Snapshot.model_validate(snapshot))
         except ConnectorError as error:
             code = error.code if error.code in ERROR_MESSAGES else "connector_failed"
-            db.fail(job["id"], code, ERROR_MESSAGES[code])
+            message = ERROR_MESSAGES[code]
+            if isinstance(error.stage, str) and error.stage in DIAGNOSTIC_STAGES:
+                message += " Stage: " + error.stage + "."
+            db.fail(job["id"], code, message)
         except Exception:
             db.fail(job["id"], "connector_failed", ERROR_MESSAGES["connector_failed"])
         return True

@@ -139,46 +139,48 @@ Live integration is **unverified**. Use only your own Santander Chile products.
 Real bank credentials belong in your own local client, never in GitHub issues,
 chat, screenshots, `.env`, shell history, or this project's maintainers' systems.
 
-1. Stop the demo with `make down`.
-2. In your local `.env`, change `OPEN_FIN_MODE=live`; keep the generated token/key
-   and `OPEN_FIN_COOLDOWN_SECONDS=3600`. Restart with `make up`.
-3. Create a connection with your local client over loopback. This example prompts
-   without echoing credentials or putting them in command arguments or files:
+The guided flow requires Python 3.9+ on the host and an interactive terminal:
 
 ```sh
-python3 - <<'PY'
-import getpass
-import json
-import os
-import urllib.request
-
-payload = {
-    "bank": "santander",
-    "label": "My Santander",
-    "credentials": {
-        "rut": getpass.getpass("Santander RUT: "),
-        "password": getpass.getpass("Santander password: "),
-    },
-}
-request = urllib.request.Request(
-    "http://127.0.0.1:8088/v1/connections",
-    data=json.dumps(payload).encode(),
-    headers={
-        "Authorization": "Bearer " + os.environ["OPEN_FIN_API_TOKEN"],
-        "Content-Type": "application/json",
-    },
-)
-with urllib.request.urlopen(request, timeout=15) as response:
-    print("Connection ID:", json.load(response)["id"])
-PY
+make validate-live
+# Or open scripts/validate-santander.command in macOS Terminal.
 ```
 
-The earlier token-loading step must run in the same shell as this client. Queue
-and inspect a sync using the returned connection ID as in the demo. Connections retain their creation mode. Live queries exclude cached demo data, and
-a connection created in another mode cannot be synchronized. Live mode never
-substitutes synthetic results. An authentication challenge or portal change can
-make a sync fail. There is no remote MFA interface in this release; interactive
-bank challenges may require manual approval and a later synchronization.
+It builds the current container image, changes this deployment to live mode,
+preserves its API token, encryption key, database and configured cooldown, and sets
+a ten-minute job deadline when switching from demo. It checks health and API authentication
+before asking for your RUT and password. Both prompts hide input. Credentials go
+only to the local API; that API stores them encrypted. The client uses loopback,
+bypasses environment proxies and refuses redirects. Keep the Santander app at hand
+for any bank approval. There is no interactive CAPTCHA or MFA-code entry interface.
+
+The assistant requests **one synchronization** and opens a private HTML report for
+you to compare with Santander. It checks every API page, product references,
+currencies and decimal values, and separates the current extraction from older
+cached rows. Compare all accounts/cards and CLP/USD products, up to five sample
+movements (dates, signs and amounts), and billed/unbilled card sources. Complete the
+three confirmation prompts in Terminal. A successful job is not a completed bank
+validation until you make that comparison. Visible portal history remains the limit;
+this does not establish full historical coverage.
+
+Artifacts stay under the ignored `data/validation/santander/` directory, with owner-only
+permissions (`0700` directory, `0600` files):
+
+- `report.html`: private product and movement details; open and review locally.
+- `state.json`: local origin and attempt identifiers for resumption; no credentials.
+- `status.json`: allowlisted outcome, aggregate counts, safe error stage/code and
+  owner comparison status. This is the only artifact suitable for sharing in chat.
+
+Reopening the flow resumes the same recorded job without another bank login. A failed
+job is not retried. If a POST response was lost, the tool stops because its outcome
+is uncertain. Inspect the local API before deliberately starting another attempt;
+do not delete the saved state merely to bypass a failure or cooldown. A phone approval
+that cannot complete within the portal's login flow leaves the trial unverified.
+
+Connections retain their creation mode. Live queries exclude cached demo data,
+and live mode never substitutes synthetic results. See the
+[local validation contract](docs/specs/banking/local-live-validation.md) for the
+transport, privacy and resumption boundaries.
 
 The container uses non-root Chromium with its sandbox enabled and a
 [Playwright-derived seccomp profile](scripts/chromium-seccomp.json). The host must
@@ -247,6 +249,8 @@ connector.
 The [0.1.0 validation record](docs/validation-0.1.0.md) reports the 188 passing
 container tests, 86% line coverage, real HTTP demo/restart checks and the remaining
 live-bank validation gap.
+The [local validation flow evidence](docs/validation-local-santander.md) records
+317 passing container tests, 88% coverage and preparation of the owner-operated trial.
 
 ## Project and license
 
