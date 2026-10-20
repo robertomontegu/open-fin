@@ -148,8 +148,8 @@ make validate-live
 
 It builds the current container image, changes this deployment to live mode,
 preserves its API token, encryption key, database and configured cooldown, and sets
-a ten-minute job deadline when switching from demo. It checks health and API authentication
-before asking for your RUT and password. Both prompts hide input. Credentials go
+a ten-minute job deadline when switching from demo. It checks health and API
+authentication before asking for your RUT and password. Both prompts hide input. Credentials go
 only to the local API; that API stores them encrypted. The client uses loopback,
 bypasses environment proxies and refuses redirects. Keep the Santander app at hand
 for any bank approval. There is no interactive CAPTCHA or MFA-code entry interface.
@@ -176,6 +176,12 @@ job is not retried. If a POST response was lost, the tool stops because its outc
 is uncertain. Inspect the local API before deliberately starting another attempt;
 do not delete the saved state merely to bypass a failure or cooldown. A phone approval
 that cannot complete within the portal's login flow leaves the trial unverified.
+
+An HTTP `401`/`403` while opening the portal stops with `bank_access_denied` before
+reading or filling the page. Other HTTP errors stop with `bank_http_error`. Missing
+or ambiguous supported public login entries also fail safely. If the page works
+in your normal browser but this container receives a denial, that environment
+still needs diagnosis; changing a selector alone does not establish live access.
 
 Connections retain their creation mode. Live queries exclude cached demo data,
 and live mode never substitutes synthetic results. See the
@@ -250,7 +256,7 @@ The [0.1.0 validation record](docs/validation-0.1.0.md) reports the 188 passing
 container tests, 86% line coverage, real HTTP demo/restart checks and the remaining
 live-bank validation gap.
 The [local validation flow evidence](docs/validation-local-santander.md) records
-317 passing container tests, 88% coverage and preparation of the owner-operated trial.
+342 passing container tests, 89% coverage and preparation of the owner-operated trial.
 
 ## Project and license
 

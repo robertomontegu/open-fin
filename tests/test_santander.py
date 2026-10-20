@@ -37,6 +37,16 @@ def connector():
     return result
 
 
+def _login_entries(page, *, current_count=0, legacy_count=1):
+    current, legacy = MagicMock(), MagicMock()
+    current.filter.return_value = current
+    legacy.filter.return_value = legacy
+    current.count.return_value = current_count
+    legacy.count.return_value = legacy_count
+    page.get_by_role.side_effect = lambda role, **_options: current if role == "link" else legacy
+    return current, legacy
+
+
 @pytest.mark.parametrize(
     "text,currency,expected",
     [
@@ -186,8 +196,72 @@ def test_untrusted_origins_fail_before_credentials_are_filled(url):
         SantanderConnector._trusted_url(url)
 
 
+@pytest.mark.parametrize(
+    "status,code",
+    [
+        (401, "bank_access_denied"),
+        (403, "bank_access_denied"),
+        (400, "bank_http_error"),
+        (404, "bank_http_error"),
+        (429, "bank_http_error"),
+        (500, "bank_http_error"),
+        (503, "bank_http_error"),
+    ],
+)
+def test_navigation_classifies_failed_http_responses_before_reading_portal(connector, status, code):
+    page = MagicMock()
+    page.url = santander.LOGIN_URL
+    page.goto.return_value.status = status
+    with pytest.raises(ConnectorError, match=f"^{code}$"):
+        connector._goto(page, santander.LOGIN_URL)
+    page.locator.assert_not_called()
+    page.get_by_role.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [200, 204, 302, 304, None])
+def test_navigation_accepts_successful_responses_and_no_response(connector, status):
+    page = MagicMock()
+    page.url = santander.LOGIN_URL
+    if status is None:
+        page.goto.return_value = None
+    else:
+        page.goto.return_value.status = status
+    connector._goto(page, santander.LOGIN_URL)
+    page.goto.assert_called_once()
+
+
+def test_navigation_checks_final_origin_before_http_status(connector):
+    page = MagicMock()
+    page.url = "https://untrusted.example/private"
+    page.goto.return_value.status = 403
+    with pytest.raises(ConnectorError, match="^untrusted_bank_origin$"):
+        connector._goto(page, santander.LOGIN_URL)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_login_http_denial_reports_login_page_without_filling_or_submitting(monkeypatch, status):
+    manager = MagicMock()
+    browser = manager.__enter__.return_value.chromium.launch.return_value
+    page = browser.new_context.return_value.new_page.return_value
+    page.url = santander.LOGIN_URL
+    page.goto.return_value.status = status
+    monkeypatch.setattr(santander, "sync_playwright", lambda: manager)
+    connector = SantanderConnector()
+    credentials = Credentials(rut="synthetic-owner", password="synthetic-password")
+    with pytest.raises(ConnectorError) as failure:
+        connector.fetch(credentials)
+    assert failure.value.code == "bank_access_denied"
+    assert failure.value.stage == "login_page"
+    assert str(failure.value) == "bank_access_denied"
+    page.get_by_role.assert_not_called()
+    page.get_by_label.assert_not_called()
+    page.locator.assert_not_called()
+    browser.close.assert_called_once()
+
+
 def test_login_does_not_fill_credentials_into_redirected_iframe(connector, monkeypatch):
     page = MagicMock()
+    _login_entries(page)
     frame = page.locator.return_value.element_handle.return_value.content_frame.return_value
     frame.url = "https://untrusted.example/login"
     monkeypatch.setattr(connector, "_goto", lambda *_: None)
@@ -196,6 +270,60 @@ def test_login_does_not_fill_credentials_into_redirected_iframe(connector, monke
         connector._login(page, credentials)
     frame.get_by_role.return_value.fill.assert_not_called()
     frame.get_by_label.return_value.fill.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "current_count,legacy_count,expected",
+    [(1, 1, "current"), (1, 2, "current"), (0, 1, "legacy")],
+)
+def test_login_uses_current_link_or_unique_visible_legacy_button(
+    connector, monkeypatch, current_count, legacy_count, expected
+):
+    page = MagicMock()
+    page.url = santander.LOGIN_URL
+    current, legacy = _login_entries(page, current_count=current_count, legacy_count=legacy_count)
+    frame = page.locator.return_value.element_handle.return_value.content_frame.return_value
+    frame.url = "https://banco.santander.cl/login"
+    frame.get_by_label.return_value.count.return_value = 1
+    monkeypatch.setattr(connector, "_goto", lambda *_: None)
+    credentials = Credentials(rut="synthetic-owner", password="synthetic-password")
+    connector._login(page, credentials)
+    page.get_by_role.assert_any_call("link", name="Abrir panel de ingreso", exact=True)
+    page.get_by_role.assert_any_call("button", name="Ingresar al sitio privado")
+    current.filter.assert_called_once_with(visible=True)
+    legacy.filter.assert_called_once_with(visible=True)
+    selected, unselected = (current, legacy) if expected == "current" else (legacy, current)
+    selected.click.assert_called_once()
+    unselected.click.assert_not_called()
+    frame.get_by_role.return_value.fill.assert_called_once()
+    assert frame.get_by_role.return_value.fill.call_args.args == ("synthetic-owner",)
+    frame.get_by_label.return_value.fill.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "current_count,legacy_count,code",
+    [
+        (2, 1, "ambiguous_login_entry"),
+        (0, 2, "ambiguous_login_entry"),
+        (0, 0, "missing_login_entry"),
+    ],
+)
+def test_login_missing_or_ambiguous_entry_never_opens_or_fills_credentials(
+    connector, monkeypatch, current_count, legacy_count, code
+):
+    page = MagicMock()
+    current, legacy = _login_entries(page, current_count=current_count, legacy_count=legacy_count)
+    if not current_count and not legacy_count:
+        current.or_.return_value.first.wait_for.side_effect = PlaywrightTimeoutError(
+            "synthetic page content must not escape"
+        )
+    monkeypatch.setattr(connector, "_goto", lambda *_: None)
+    with pytest.raises(ConnectorError, match=f"^{code}$"):
+        connector._login(page, Credentials(rut="synthetic-owner", password="synthetic-password"))
+    assert connector._stage == "login_page"
+    current.click.assert_not_called()
+    legacy.click.assert_not_called()
+    page.locator.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -293,6 +421,8 @@ def test_fetch_reports_only_safe_failure_stage_and_closes_browser(monkeypatch, s
     browser = manager.__enter__.return_value.chromium.launch.return_value
     page = browser.new_context.return_value.new_page.return_value
     page.url = "https://banco.santander.cl/personas"
+    page.goto.return_value.status = 200
+    _login_entries(page)
     iframe = MagicMock()
     frame = iframe.element_handle.return_value.content_frame.return_value
     frame.url = "https://banco.santander.cl/login"
@@ -340,6 +470,7 @@ def test_fetch_reports_only_safe_failure_stage_and_closes_browser(monkeypatch, s
 def test_login_challenge_wait_is_bounded_and_does_not_resubmit(connector, monkeypatch):
     page = MagicMock()
     page.url = "https://banco.santander.cl/personas"
+    _login_entries(page)
     frame = page.locator.return_value.element_handle.return_value.content_frame.return_value
     frame.url = "https://banco.santander.cl/login"
     frame.get_by_label.return_value.count.return_value = 1

@@ -6,7 +6,7 @@ credentials or financial results.
 
 ## Automated evidence
 
-The final test image passed **317 tests**, without skips, with networking disabled:
+The final test image passed **342 tests**, without skips, with networking disabled:
 
 ```sh
 docker build --target test -t open-fin:test .
@@ -18,7 +18,7 @@ docker run --rm --init --network none \
    PYTHONPYCACHEPREFIX=/tmp/open-fin-pycache python -m compileall -q src scripts'
 ```
 
-Owned executable line coverage was **88%** (1,509 statements, 176 uncovered).
+Owned executable line coverage was **89%** (1,533 statements, 176 uncovered).
 The local wizard measured 84%; the report module measured 97%. Uncovered live
 browser branches, process-control paths and CLI error paths remain gaps; this
 measurement is not a claim of complete coverage. One upstream Starlette/httpx
@@ -48,3 +48,19 @@ Green tests and a healthy live-mode deployment establish readiness for the trial
 not a successful Santander login, MFA compatibility, complete product coverage or
 correct bank movements. Live compatibility remains unverified until the owner
 finishes the local comparison. No financial report is committed or uploaded.
+
+## Public portal follow-up
+
+The public page in the owner's in-app browser exposes its entry as a link named
+`Abrir panel de ingreso`. The adapter now supports that exact visible link and
+the earlier button, rejecting absent or ambiguous entries. HTTP 401/403 and other
+HTTP errors are classified before selectors or credential input.
+
+A fresh isolated browser without credentials received HTTP 403 from the public
+portal; an unauthenticated HTTP request from the container also received 403,
+while a request from the host received 200. A direct container request without
+environment proxy discovery did not complete. These observations establish an
+unresolved access difference between environments; they do not establish its cause
+or a successful authenticated connection. No bank login was retried during these
+public diagnostics. The updated runtime is healthy in live mode, and the recorded
+trial remains failed rather than being reset by a container rebuild.

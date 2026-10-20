@@ -47,6 +47,12 @@ Request timeouts SHALL bound each local HTTP call. The API bearer token SHALL be
 read privately from the local deployment configuration or a hidden prompt and SHALL
 never appear in the shareable summary.
 
+Bank portal navigation SHALL reject HTTP 401/403 as `bank_access_denied`, and other
+HTTP errors as `bank_http_error`, before inspecting or filling page controls. The
+public entry SHALL use an unambiguous supported visible control; a missing or
+ambiguous entry SHALL fail safely. A browser loading the public page does not
+establish that the container can access it.
+
 Preparing the local deployment SHALL target this repository's explicit Compose
 project and files, build the current source before starting the services, and switch
 demo onboarding to live mode with a 600-second worker timeout. It SHALL preserve the
@@ -126,6 +132,15 @@ The first live result is owner-supplied evidence. Until the owner completes the 
 comparison, Santander compatibility, product coverage, MFA behavior and movement
 correctness remain unverified. A synthetic demonstration, green CI, or a running
 Docker stack SHALL not be described as a successful live bank validation.
+
+Public-entry regression cases are linked explicitly below. They use synthetic page
+objects and do not establish that the deployment can reach Santander:
+
+| Boundary | Exact executable test nodes |
+| --- | --- |
+| HTTP error classification before controls or credentials | `tests/test_santander.py::test_navigation_classifies_failed_http_responses_before_reading_portal`<br>`tests/test_santander.py::test_navigation_checks_final_origin_before_http_status`<br>`tests/test_santander.py::test_login_http_denial_reports_login_page_without_filling_or_submitting` |
+| Supported current/legacy public entry and ambiguity | `tests/test_santander.py::test_login_uses_current_link_or_unique_visible_legacy_button`<br>`tests/test_santander.py::test_login_missing_or_ambiguous_entry_never_opens_or_fills_credentials` |
+| Safe reporting without another attempt | `tests/test_local_validation.py::test_public_entry_failures_keep_safe_diagnostics_without_retrying` |
 
 ## Traceability
 

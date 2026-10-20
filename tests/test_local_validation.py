@@ -477,6 +477,35 @@ def test_failed_job_does_not_retry_login_or_disclose_bank_error(tmp_path, capsys
 
 
 @pytest.mark.spec("OF-AC-012")
+@pytest.mark.parametrize(
+    "code",
+    ["bank_access_denied", "bank_http_error", "missing_login_entry", "ambiguous_login_entry"],
+)
+def test_public_entry_failures_keep_safe_diagnostics_without_retrying(code, tmp_path):
+    client = SyntheticLiveClient(failed=True)
+    original_job = client.job
+
+    def failed_job(status):
+        return dict(
+            original_job(status),
+            error_code=code,
+            error_message=SYNTHETIC_SECRET + " Stage: login_page.",
+        )
+
+    client.job = failed_job
+    directory = tmp_path / "trial"
+    for _ in range(2):
+        with pytest.raises(validation.FlowError) as caught:
+            run_synthetic(client, directory)
+        assert caught.value.code == code
+        assert caught.value.stage == "login_page"
+        summary = json.loads((directory / "status.json").read_text())
+        assert summary == {"phase": "failed", "error_code": code, "stage": "login_page"}
+        assert SYNTHETIC_SECRET not in json.dumps(summary)
+    assert sum(method == "POST" for method, _path, _body in client.requests) == 2
+
+
+@pytest.mark.spec("OF-AC-012")
 def test_unrecognized_api_error_codes_are_not_copied_to_shareable_status(tmp_path):
     client = SyntheticLiveClient(failed=True)
     original_job = client.job

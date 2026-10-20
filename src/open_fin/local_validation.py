@@ -33,6 +33,8 @@ SAFE_STAGES = {
     "card_billed",
 }
 SAFE_BANK_CODES = {
+    "bank_access_denied",
+    "bank_http_error",
     "connector_failed",
     "authentication_failed",
     "authentication_required",
@@ -58,6 +60,8 @@ SAFE_BANK_CODES = {
     "missing_card_products",
     "missing_currency_controls",
     "missing_login_frame",
+    "missing_login_entry",
+    "ambiguous_login_entry",
     "missing_login_fields",
     "missing_movement_column",
     "missing_movement_rows",
@@ -96,6 +100,11 @@ MESSAGES = {
     "compose_failed": "No se pudieron preparar los servicios locales. Revisa Docker.",
     "service_unavailable": "La API local no respondió. Comprueba que Docker esté funcionando.",
     "origin_mismatch": "Este intento corresponde a otro puerto local. Restaura su configuración.",
+    "bank_access_denied": (
+        "El portal bancario denegó el acceso desde esta instancia. "
+        "No se repetirá el ingreso automáticamente."
+    ),
+    "bank_http_error": "El portal bancario devolvió un error HTTP. No se reintentará el ingreso.",
 }
 
 

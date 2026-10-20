@@ -27,6 +27,8 @@ ERROR_MESSAGES = {
         "This connection belongs to a different deployment mode. Create a new connection."
     ),
     "process_control_unavailable": "This host cannot safely supervise bank browser processes.",
+    "bank_access_denied": "The bank portal denied access before its content could be read.",
+    "bank_http_error": "The bank portal returned an HTTP error. No automatic retry was made.",
 }
 for _code in {
     "ambiguous_currency_control",
@@ -44,6 +46,8 @@ for _code in {
     "missing_card_products",
     "missing_currency_controls",
     "missing_login_frame",
+    "missing_login_entry",
+    "ambiguous_login_entry",
     "missing_login_fields",
     "missing_movement_column",
     "missing_movement_rows",
